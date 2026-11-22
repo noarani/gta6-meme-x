@@ -1,81 +1,158 @@
-// Entry program for make.fun's "Post a GTA 6 meme on X" bounty (gta6-meme-x-01).
-//
-// Node 22, standard library only, no network. The entry itself is the meme post
-// on X; this program is the repository's entrypoint: it reads POST.json (the
-// file the bounty's entry_link check reads), validates the post's address and
-// prints a formatted summary. When MAKEFUN_OUTPUT_DIR is set (the grader's
-// /output), it also writes the summary there as post-summary.json.
-//
-// Run it:  node main.ts
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+const COMPETITION = "gta6-meme-x-01";
+const BOUNTY_NAME = "Post a GTA 6 meme on X";
+const BOUNTY_URL = "https://make.fun/bounty/gta6-meme-x-01";
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const postFile = join(here, 'POST.json');
-
-/** An X post address: https://x.com/<handle>/status/<digits> (twitter.com also passes). */
-const POST_URL = /^https:\/\/(x\.com|twitter\.com)\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/;
-
-/** Markers that mean POST.json still holds the template placeholder, not a real post. */
-const PLACEHOLDER = /REPLACE|PLACEHOLDER|YOUR_/i;
-
-interface PostRecord {
-  url: string;
-}
-
-function fail(message: string): never {
-  process.stderr.write(`gta6-meme-x-01: ${message}\n`);
+function fail(reason: string, detail?: string): never {
+  console.error(`error: validation failed: ${reason}`);
+  if (detail) {
+    console.error(`detail: ${detail}`);
+  }
+  console.error(
+    `expected: POST.json with {"url": "https://x.com/<account>/status/<numeric_status_id>"} for bounty ${BOUNTY_URL}`,
+  );
   process.exit(1);
 }
 
-let raw: string;
-try {
-  raw = readFileSync(postFile, 'utf8');
-} catch {
-  fail(`POST.json not found beside main.ts (${postFile})`);
+function main(): void {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const postPath = join(here, "POST.json");
+
+  let raw: string;
+  try {
+    raw = readFileSync(postPath, "utf8");
+  } catch (e) {
+    fail(
+      `could not read POST.json`,
+      `path=${postPath} reason=${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(raw!);
+  } catch (e) {
+    fail(
+      "POST.json is not valid JSON",
+      `parse_error=${e instanceof Error ? e.message : String(e)} content=${raw!.slice(0, 120)}`,
+    );
+  }
+
+  const url =
+    data !== null && typeof data === "object" && "url" in data
+      ? (data as { url: unknown }).url
+      : undefined;
+
+  if (typeof url !== "string" || url.length === 0) {
+    fail(
+      `POST.json does not contain a non-empty string field "url"`,
+      `field "url" was ${url === undefined ? "missing" : `type=${typeof url} value=${JSON.stringify(url)}`}`,
+    );
+  }
+
+  const placeholderToken = ["REPLACE", "PLACEHOLDER", "YOUR_"].find((t) =>
+    url!.includes(t),
+  );
+  if (placeholderToken) {
+    fail(
+      "url still contains a placeholder value and is not a real post URL",
+      `matched_placeholder=${placeholderToken} url=${url}`,
+    );
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url!);
+  } catch (e) {
+    fail(
+      `url is not a parseable URL`,
+      `url=${url} reason=${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  if (parsed.protocol !== "https:") {
+    fail(
+      `url must use https, not ${parsed.protocol}`,
+      `url=${url} protocol=${parsed.protocol}`,
+    );
+  }
+
+  const host = parsed.hostname;
+  if (host !== "x.com" && host !== "twitter.com" && host !== "www.twitter.com") {
+    fail(
+      `url host must be x.com or twitter.com`,
+      `got host=${host} url=${url}`,
+    );
+  }
+
+  // Expected path: /<account>/status/<status_id>
+  const parts = parsed.pathname.split("/").filter((p) => p.length > 0);
+  if (parts.length !== 3 || parts[1] !== "status") {
+    fail(
+      `url path must be /<account>/status/<status_id> (exactly 3 segments, middle segment "status")`,
+      `got path=${parsed.pathname} segments=[${parts.join(", ")}] count=${parts.length}`,
+    );
+  }
+
+  const account = parts[0];
+  const statusId = parts[2];
+
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(account)) {
+    fail(
+      `invalid X account handle (must be 1-15 chars of letters, digits, or underscore)`,
+      `got account=${account}`,
+    );
+  }
+
+  if (!/^[0-9]+$/.test(statusId)) {
+    fail(
+      `status id must be numeric only`,
+      `got status_id=${statusId} (non-numeric characters: ${statusId.replace(/[0-9]/g, "") || "none"})`,
+    );
+  }
+
+  const valid = true;
+  const placeholder = false;
+
+  console.log(`bounty: ${BOUNTY_NAME} (${COMPETITION})`);
+  console.log(`competition: ${COMPETITION}`);
+  console.log(`bounty_url: ${BOUNTY_URL}`);
+  console.log(`url: ${url}`);
+  console.log(`post_url: ${url}`);
+  console.log(`host: ${host}`);
+  console.log(`account: ${account}`);
+  console.log(`status_id: ${statusId}`);
+  console.log(`format: ${valid ? "valid" : "invalid"}`);
+  console.log(`placeholder: ${placeholder ? "yes" : "no"}`);
+  console.log(
+    `summary_bounty: ${BOUNTY_NAME} (${COMPETITION}) at ${BOUNTY_URL}`,
+  );
+  console.log(
+    `summary_post: @${account} posted ${url} (status ${statusId} on ${host})`,
+  );
+  console.log(
+    `summary: entry for ${BOUNTY_URL} is the X post ${url} by @${account}`,
+  );
+
+  const outputDir = process.env.MAKEFUN_OUTPUT_DIR;
+  if (outputDir) {
+    mkdirSync(outputDir, { recursive: true });
+    const summary = {
+      competition: COMPETITION,
+      bounty_url: BOUNTY_URL,
+      url: url,
+      post_url: url,
+      host: host,
+      account: account,
+      status_id: statusId,
+    };
+    const outPath = join(outputDir, "post-summary.json");
+    writeFileSync(outPath, JSON.stringify(summary, null, 2) + "\n", "utf8");
+    console.log(`summary_file: ${outPath}`);
+  }
 }
 
-let record: PostRecord;
-try {
-  record = JSON.parse(raw) as PostRecord;
-} catch {
-  fail('POST.json is not valid JSON');
-}
-
-const url = typeof record.url === 'string' ? record.url.trim() : '';
-if (url === '') fail('POST.json has no "url" string');
-
-const match = POST_URL.exec(url);
-const placeholder = PLACEHOLDER.test(url);
-
-const lines: string[] = [];
-lines.push('make.fun bounty: gta6-meme-x-01 (Post a GTA 6 meme on X)');
-lines.push(`post url:    ${url}`);
-if (match) {
-  lines.push(`host:        ${match[1]}`);
-  lines.push(`account:     @${match[2]}`);
-  lines.push(`status id:   ${match[3]}`);
-  lines.push('url form:    valid (https://x.com/<handle>/status/<id>)');
-} else {
-  lines.push('url form:    INVALID (want https://x.com/<handle>/status/<id>)');
-}
-lines.push(`placeholder: ${placeholder ? 'yes (template value, not a real post yet)' : 'no'}`);
-process.stdout.write(lines.join('\n') + '\n');
-
-if (!match) fail('the url in POST.json is not a well-formed X post address');
-if (placeholder) fail('POST.json still holds the placeholder; write the real post address first');
-
-const outDir = process.env.MAKEFUN_OUTPUT_DIR;
-if (outDir) {
-  const summary = {
-    competition: 'gta6-meme-x-01',
-    url,
-    host: match[1],
-    account: match[2],
-    status_id: match[3],
-  };
-  writeFileSync(join(outDir, 'post-summary.json'), JSON.stringify(summary, null, 2) + '\n');
-  process.stdout.write(`summary written: ${join(outDir, 'post-summary.json')}\n`);
-}
+main();
