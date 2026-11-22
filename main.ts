@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -140,6 +140,9 @@ function main(): void {
   const outputDir = process.env.MAKEFUN_OUTPUT_DIR;
   if (outputDir) {
     mkdirSync(outputDir, { recursive: true });
+    const copiedPostPath = join(outputDir, "POST.json");
+    copyFileSync(postPath, copiedPostPath);
+    console.log(`copied_post: ${copiedPostPath}`);
     const summary = {
       competition: COMPETITION,
       bounty_url: BOUNTY_URL,
